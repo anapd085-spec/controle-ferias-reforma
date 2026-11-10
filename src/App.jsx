@@ -70,14 +70,27 @@ const PAYMENT_METHODS = ['Dinheiro', 'Cartão de Crédito', 'Cartão de Débito'
 // Configuração padrão de fallback para Firebase (se não injetado)
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
-  : {
-      apiKey: "demo-api-key",
-      authDomain: "demo-app.firebaseapp.com",
-      projectId: "demo-app",
-      storageBucket: "demo-app.appspot.com",
-      messagingSenderId: "123456789",
-      appId: "1:123456789:web:demo"
-    };
+ // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDChB7WQenussohEFm8mpNtKCaLTpZHl54",
+  authDomain: "controle-de-ferias-5d41c.firebaseapp.com",
+  projectId: "controle-de-ferias-5d41c",
+  storageBucket: "controle-de-ferias-5d41c.firebasestorage.app",
+  messagingSenderId: "360967014152",
+  appId: "1:360967014152:web:c21c3491e18e8272fccebd",
+  measurementId: "G-5M8RSTV1WP"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
