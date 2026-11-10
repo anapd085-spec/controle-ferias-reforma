@@ -67,40 +67,20 @@ const CATEGORIES = {
 
 const PAYMENT_METHODS = ['Dinheiro', 'Cartão de Crédito', 'Cartão de Débito', 'PIX', 'Outro'];
 
-// Configuração padrão de fallback para Firebase (se não injetado)
-const firebaseConfig = typeof __firebase_config !== 'undefined'
-const firebaseConfig = {
-  apiKey: "sua-api-key-aqui",
-  authDomain: "seu-projeto.firebaseapp.com",
-  projectId: "seu-projeto-id",
-  storageBucket: "seu-projeto.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123def"
-};
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// Configuração do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyDChB7WQenussohEFm8mpNtKCaLTpZHl54",
   authDomain: "controle-de-ferias-5d41c.firebaseapp.com",
   projectId: "controle-de-ferias-5d41c",
-  storageBucket: "controle-de-ferias-5d41c.firebasestorage.app",
-  messagingSenderId: "360967014152",
-  appId: "1:360967014152:web:c21c3491e18e8272fccebd",
-  measurementId: "G-5M8RSTV1WP"
+  storageBucket: "controle-de-ferias-5d41c.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:demo"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'ferias-reformas-app';
-
 export default function App() {
   const [activeTab, setActiveTab] = useState('vacation'); // 'vacation' | 'renovation'
   const [user, setUser] = useState(null);
