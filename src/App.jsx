@@ -9,7 +9,7 @@ import {
   addDoc, 
   deleteDoc 
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { 
   Palmtree, 
   Home, 
@@ -32,7 +32,6 @@ import {
   Smartphone,
   Copy,
   Check,
-  ShieldCheck,
   Wifi,
   WifiOff
 } from 'lucide-react';
@@ -80,9 +79,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'ferias-reformas-app';
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('vacation'); // 'vacation' | 'renovation'
+  const [activeTab, setActiveTab] = useState('vacation');
   const [user, setUser] = useState(null);
   
   // Código do Grupo/Família para sincronização em nuvem
@@ -156,17 +155,13 @@ export default function App() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // Auth Firebase
+  // Auth Firebase Anônima Garantida
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (err) {
-        console.warn('Executando em modo offline / fallback local:', err);
+        console.warn('Modo offline / erro de autenticação:', err);
       }
     };
     initAuth();
@@ -174,26 +169,24 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sincronização Firestore Real-Time
+  // Sincronização Firestore Real-Time Otimizada
   useEffect(() => {
-    if (!user || !syncCode) return;
+    if (!syncCode) return;
 
-    // Listener para Despesas públicas da sala
-    const expensesRef = collection(db, 'artifacts', appId, 'public', 'data', `expenses_${syncCode}`);
+    // Caminho direto e compartilhado na nuvem para o grupo
+    const expensesRef = collection(db, 'grupos', syncCode, 'expenses');
     const unsubExpenses = onSnapshot(
       expensesRef,
       (snapshot) => {
-        const loadedExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        if (loadedExpenses.length > 0) {
-          setExpenses(loadedExpenses);
-          localStorage.setItem('fin_expenses', JSON.stringify(loadedExpenses));
-        }
+        const loadedExpenses = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        setExpenses(loadedExpenses);
+        localStorage.setItem('fin_expenses', JSON.stringify(loadedExpenses));
       },
-      (error) => console.log('Firestore offline mode / erro de permissão:', error)
+      (error) => console.log('Erro no listener de despesas:', error)
     );
 
-    // Listener para Configurações de Orçamento
-    const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', `settings_${syncCode}`, 'budget_config');
+    // Listener para Configurações de Orçamento do Grupo
+    const settingsDoc = doc(db, 'grupos', syncCode, 'config', 'budget_settings');
     const unsubSettings = onSnapshot(
       settingsDoc,
       (docSnap) => {
@@ -209,14 +202,14 @@ export default function App() {
           }
         }
       },
-      (error) => console.log('Settings error:', error)
+      (error) => console.log('Erro no listener de settings:', error)
     );
 
     return () => {
       unsubExpenses();
       unsubSettings();
     };
-  }, [user, syncCode]);
+  }, [syncCode]);
 
   // Atualiza default do formulário ao trocar tab
   useEffect(() => {
@@ -231,9 +224,8 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('fin_budgets', JSON.stringify(budgets));
     localStorage.setItem('fin_cat_limits', JSON.stringify(categoryLimits));
-    localStorage.setItem('fin_expenses', JSON.stringify(expenses));
     localStorage.setItem('fin_sync_code', syncCode);
-  }, [budgets, categoryLimits, expenses, syncCode]);
+  }, [budgets, categoryLimits, syncCode]);
 
   // Solicitar Permissão de Notificação
   const requestNotificationPermission = async () => {
@@ -241,7 +233,7 @@ export default function App() {
       const perm = await Notification.requestPermission();
       setNotificationPermission(perm);
       if (perm === 'granted') {
-        showToast('Notificações ativadas! Alertas de limite serão enviados ao seu celular/PC.');
+        showToast('Notificações ativadas com sucesso!');
       }
     }
   };
@@ -283,51 +275,16 @@ export default function App() {
     return totals;
   }, [currentExpenses, activeTab]);
 
-  // Verificação de alertas para novo gasto
-  const checkAlertsOnAdd = (newExpenseAmount, newCategory) => {
-    const newTotal = totalSpent + newExpenseAmount;
-    const newUsagePercent = currentBudget > 0 ? (newTotal / currentBudget) * 100 : 0;
-    
-    // Alerta Orçamento Geral
-    if (newUsagePercent >= 100) {
-      const msg = `⚠️ ATENÇÃO: Seu gasto estourou o orçamento de ${activeTab === 'vacation' ? 'Férias' : 'Reforma'}!`;
-      showToast(msg, 'danger');
-      triggerNativeNotification('Orçamento Estourado!', msg);
-    } else if (newUsagePercent >= 90) {
-      const msg = `⚠️ ALERTA: Você já usou 90% do orçamento total!`;
-      showToast(msg, 'warning');
-      triggerNativeNotification('Aviso de Orçamento', msg);
-    } else if (newUsagePercent >= 80) {
-      const msg = `🔔 AVISO: 80% do orçamento total consumido.`;
-      showToast(msg, 'warning');
-    }
-
-    // Alerta por Categoria
-    const catSpent = (categoryTotals[newCategory] || 0) + newExpenseAmount;
-    const catLimit = categoryLimits[activeTab]?.[newCategory] || 0;
-    if (catLimit > 0) {
-      const catPercent = (catSpent / catLimit) * 100;
-      if (catPercent >= 100) {
-        const msg = `🚨 Categoria [${newCategory}] ultrapassou o teto definido de ${formatCurrency(catLimit)}!`;
-        showToast(msg, 'danger');
-        triggerNativeNotification(`Limite da Categoria Excedido!`, msg);
-      } else if (catPercent >= 80) {
-        showToast(`⚠️ Categoria [${newCategory}] atingiu ${catPercent.toFixed(0)}% do teto!`, 'warning');
-      }
-    }
-  };
-
   // Adicionar Gasto
   const handleAddExpense = async (e) => {
     e.preventDefault();
     if (!form.description.trim() || !form.amount || Number(form.amount) <= 0) return;
 
     const amountNum = parseFloat(form.amount);
-    checkAlertsOnAdd(amountNum, form.category);
 
     const newExpense = {
       module: activeTab,
-      description: form.description,
+      description: form.description.trim(),
       amount: amountNum,
       category: form.category,
       date: form.date,
@@ -335,18 +292,14 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    // Atualiza localmente
-    const localItem = { id: Date.now().toString(), ...newExpense };
-    setExpenses(prev => [localItem, ...prev]);
-
-    // Tenta sincronizar com Nuvem Firebase
-    if (user && syncCode) {
-      try {
-        const expensesRef = collection(db, 'artifacts', appId, 'public', 'data', `expenses_${syncCode}`);
-        await addDoc(expensesRef, newExpense);
-      } catch (err) {
-        console.warn('Erro ao salvar no Firebase, armazenado localmente:', err);
-      }
+    // Sincroniza imediatamente com a Nuvem Firebase
+    try {
+      const expensesRef = collection(db, 'grupos', syncCode, 'expenses');
+      await addDoc(expensesRef, newExpense);
+      showToast('Lançamento salvo na nuvem!', 'info');
+    } catch (err) {
+      console.error('Erro ao salvar no Firebase:', err);
+      showToast('Erro ao sincronizar com a nuvem.', 'danger');
     }
 
     setForm(prev => ({ ...prev, description: '', amount: '' }));
@@ -354,14 +307,11 @@ export default function App() {
 
   // Deletar Gasto
   const handleDeleteExpense = async (id) => {
-    setExpenses(prev => prev.filter(e => e.id !== id));
-    if (user && syncCode) {
-      try {
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', `expenses_${syncCode}`, id);
-        await deleteDoc(docRef);
-      } catch (err) {
-        console.warn('Erro ao deletar no Firebase:', err);
-      }
+    try {
+      const docRef = doc(db, 'grupos', syncCode, 'expenses', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('Erro ao deletar no Firebase:', err);
     }
   };
 
@@ -371,13 +321,11 @@ export default function App() {
     const updatedBudgets = { ...budgets, [activeTab]: num };
     setBudgets(updatedBudgets);
 
-    if (user && syncCode) {
-      try {
-        const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', `settings_${syncCode}`, 'budget_config');
-        await setDoc(settingsDoc, { budgets: updatedBudgets, categoryLimits }, { merge: true });
-      } catch (err) {
-        console.warn('Erro ao salvar settings no Firebase:', err);
-      }
+    try {
+      const settingsDoc = doc(db, 'grupos', syncCode, 'config', 'budget_settings');
+      await setDoc(settingsDoc, { budgets: updatedBudgets, categoryLimits }, { merge: true });
+    } catch (err) {
+      console.error('Erro ao atualizar orçamento:', err);
     }
   };
 
@@ -393,21 +341,20 @@ export default function App() {
     };
     setCategoryLimits(updatedLimits);
 
-    if (user && syncCode) {
-      try {
-        const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', `settings_${syncCode}`, 'budget_config');
-        await setDoc(settingsDoc, { budgets, categoryLimits: updatedLimits }, { merge: true });
-      } catch (err) {
-        console.warn('Erro ao salvar limits no Firebase:', err);
-      }
+    try {
+      const settingsDoc = doc(db, 'grupos', syncCode, 'config', 'budget_settings');
+      await setDoc(settingsDoc, { budgets, categoryLimits: updatedLimits }, { merge: true });
+    } catch (err) {
+      console.error('Erro ao atualizar limite de categoria:', err);
     }
   };
 
   // Alterar Código da Sala de Sincronização
   const applySyncCode = () => {
     if (tempSyncCode.trim()) {
-      setSyncCode(tempSyncCode.trim().toUpperCase());
-      showToast(`Conectado ao código da família: ${tempSyncCode.trim().toUpperCase()}`, 'info');
+      const newCode = tempSyncCode.trim().toUpperCase();
+      setSyncCode(newCode);
+      showToast(`Conectado ao grupo: ${newCode}`, 'info');
     }
   };
 
@@ -515,19 +462,16 @@ export default function App() {
 
             {/* Ações Topo */}
             <div className="flex items-center gap-2">
-              {/* Botão Notificação */}
               {notificationPermission !== 'granted' && (
                 <button
                   onClick={requestNotificationPermission}
                   className="flex items-center gap-1 px-3 py-1.5 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 text-xs font-semibold rounded-lg border border-amber-500/30 transition"
-                  title="Ativar Notificações no Celular/PC"
                 >
                   <Bell className="w-4 h-4" />
                   <span className="hidden sm:inline">Alertas Celular</span>
                 </button>
               )}
 
-              {/* Botão PWA Install */}
               {canInstallPWA && (
                 <button
                   onClick={handleInstallPWA}
@@ -570,11 +514,11 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-sm">Chave de Sincronização Família/Grupo</h3>
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 font-mono">
-                  Multi-Dispositivo
+                  Tempo Real Ativo
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Digite este código em qualquer celular/PC para usar o **mesmo orçamento** em tempo real.
+                Mesmo código em todos os aparelhos para sincronizar instantaneamente.
               </p>
             </div>
           </div>
@@ -585,7 +529,7 @@ export default function App() {
                 type="text"
                 value={tempSyncCode}
                 onChange={(e) => setTempSyncCode(e.target.value)}
-                placeholder="Ex: VIAGEM2026"
+                placeholder="Ex: FAMILIA-01"
                 className="bg-transparent px-3 py-1 text-xs font-mono font-bold text-indigo-300 focus:outline-none w-32 uppercase"
               />
               <button
@@ -616,8 +560,8 @@ export default function App() {
             <AlertTriangle className="w-5 h-5 flex-shrink-0 animate-bounce" />
             <div>
               {budgetUsagePercent >= 100 
-                ? `Alerta Crítico: Seu orçamento de ${activeTab === 'vacation' ? 'Férias' : 'Reforma'} ultrapassou o teto de ${formatCurrency(currentBudget)}!`
-                : `Atenção: Você atingiu ${budgetUsagePercent.toFixed(1)}% do total planejado para ${activeTab === 'vacation' ? 'Férias' : 'Reforma'}.`}
+                ? `Alerta Crítico: Orçamento de ${activeTab === 'vacation' ? 'Férias' : 'Reforma'} estourado!` 
+                : `Atenção: Atingiu ${budgetUsagePercent.toFixed(1)}% do total planejado.`}
             </div>
           </div>
         )}
@@ -698,7 +642,7 @@ export default function App() {
               <span className={`font-bold ${getProgressTextColor(budgetUsagePercent)}`}>
                 {budgetUsagePercent.toFixed(1)}%
               </span>
-              <span className="text-slate-400">do orçamento consumido</span>
+              <span className="text-slate-400">consumido</span>
             </div>
           </div>
 
@@ -713,12 +657,12 @@ export default function App() {
               {formatCurrency(remainingBudget)}
             </div>
             <span className="text-xs text-slate-400 mt-1">
-              {remainingBudget >= 0 ? 'Dentro do orçamento' : 'Atenção: Limite ultrapassado!'}
+              {remainingBudget >= 0 ? 'Dentro do orçamento' : 'Limite ultrapassado!'}
             </span>
           </div>
         </div>
 
-        {/* Barra de Progresso Geral */}
+        {/* Barra de Progreso Geral */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-2">
           <div className="flex justify-between items-center text-sm font-semibold">
             <span className="flex items-center gap-2">
@@ -753,7 +697,7 @@ export default function App() {
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Gasolina Posto, Tinta, Hotel..."
+                  placeholder="Ex: Gasolina, Hotel, Tinta..."
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
@@ -816,7 +760,7 @@ export default function App() {
                 className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl transition duration-200 shadow-md flex items-center justify-center gap-2 mt-2"
               >
                 <PlusCircle className="w-4 h-4" />
-                Lançar no Aplicativo
+                Lançar na Nuvem
               </button>
             </form>
           </div>
@@ -828,7 +772,7 @@ export default function App() {
                 <PieChart className="w-5 h-5 text-indigo-600" />
                 Alertas & Tetos por Categoria
               </h2>
-              <span className="text-xs text-slate-400">Limites em tempo real</span>
+              <span className="text-xs text-slate-400">Sincronizado</span>
             </div>
 
             <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
@@ -872,7 +816,7 @@ export default function App() {
                           ></div>
                         </div>
                         <div className="flex justify-between text-[10px] text-slate-400">
-                          <span>{percent.toFixed(0)}% do limite definido</span>
+                          <span>{percent.toFixed(0)}% do limite</span>
                           {spent > limit && (
                             <span className="text-red-500 font-bold">
                               Excedido em {formatCurrency(spent - limit)}
